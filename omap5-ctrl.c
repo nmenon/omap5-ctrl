@@ -28,22 +28,23 @@
 #define RD_LO_BANK	0x81
 #define WR_HI_BANK	0x82
 #define RD_HI_BANK	0x83
-#define GPIO_DIR	0x20
+#define GPIO_PWR	0x20
+/* GPIOH5 for power */
 #define GPIO_PWR_HI	0x20
 #define GPIO_PWR_LO	0x00
+/* GPIOH6 for reset */
+#define GPIO_RST	0x40
+#define GPIO_RST_HI	0x40
+#define GPIO_RST_LO	0x00
 
-static int set_power_button(struct ftdi_context ftdic, int level)
+static int set_button(struct ftdi_context ftdic, int val, int mask)
 {
 	unsigned char buf[3];
 	int f;
 
 	buf[0] = WR_HI_BANK;
-	if (level)
-		buf[1] = GPIO_PWR_HI;
-	else
-		buf[1] = GPIO_PWR_LO;
-
-	buf[2] = GPIO_DIR;
+	buf[1] = val;
+	buf[2] = mask;
 
 	f = ftdi_write_data(&ftdic, buf, sizeof(buf));
 	if (f < 0) {
@@ -56,9 +57,14 @@ static int set_power_button(struct ftdi_context ftdic, int level)
 	return 0;
 }
 
+static inline int set_power_button(struct ftdi_context ftdic, int level)
+{
+	return set_button(ftdic, level ? GPIO_PWR_HI : GPIO_PWR_LO, GPIO_PWR);
+}
+
 static int check_pwr_led(struct ftdi_context ftdic, int expect)
 {
-	unsigned char buf[3], buf_return[3];
+	unsigned char buf[3] = {0}, buf_return[3] = {0};
 	int f, i;
 	buf[0] = RD_HI_BANK;
 
@@ -98,6 +104,23 @@ static int power_ctrl(struct ftdi_context ftdic, int status)
 	return 0;
 }
 
+static inline int set_reset_button(struct ftdi_context ftdic, int level)
+{
+	return set_button(ftdic, level ? GPIO_RST_HI : GPIO_RST_LO, GPIO_RST);
+}
+
+static int reset_ctrl(struct ftdi_context ftdic)
+{
+
+	set_reset_button(ftdic, 1);
+
+	set_reset_button(ftdic, 0);
+	sleep(1);
+	set_reset_button(ftdic, 1);
+
+	return 0;
+}
+
 static void show_help(void)
 {
 	printf("Usage: omap5-ctrl -p value -r -l\n");
@@ -129,7 +152,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (req_pattern < 0) {
+	if (req_pattern != 0 && req_pattern != 1 && req_pattern != 2) {
 		show_help();
 		return 0;
 	}
@@ -148,7 +171,10 @@ int main(int argc, char **argv)
 
 	ftdi_set_bitmode(&ftdic, 0x00, BITMODE_MPSSE);
 
-	power_ctrl(ftdic, req_pattern);
+	if (req_pattern == 2)
+		reset_ctrl(ftdic);
+	else
+		power_ctrl(ftdic, req_pattern);
 
 	ftdi_usb_close(&ftdic);
 	ftdi_deinit(&ftdic);
